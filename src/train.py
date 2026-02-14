@@ -24,7 +24,7 @@ from sklearn.metrics import (
     confusion_matrix
 )
 from xgboost import XGBClassifier
-
+import shap
 from src.preprocessing import feature_engineering
 
 
@@ -212,3 +212,64 @@ with open("models/threshold.json", "w") as f:
 print("Threshold saved to models/threshold.json ✅")
 
 print("\nTraining pipeline finished successfully 🚀")
+# ==========================================
+# 9. SHAP Explainability
+# ==========================================
+
+print("\n===== SHAP EXPLAINABILITY =====\n")
+
+# SHAP works best for tree models
+if "XGB" in best_model_name:
+
+    # Transform test data
+    X_test_fe = best_pipeline.named_steps["feature_engineering"].transform(X_test)
+    X_test_processed = best_pipeline.named_steps["preprocessing"].transform(X_test_fe)
+
+    # Get trained XGBoost model
+    model = best_pipeline.named_steps["model"]
+
+    # Get feature names
+    feature_names = best_pipeline.named_steps["preprocessing"].get_feature_names_out()
+
+    # Create SHAP explainer
+    explainer = shap.TreeExplainer(model)
+
+    # Calculate SHAP values
+    shap_values = explainer.shap_values(X_test_processed)
+
+    # -------- GLOBAL IMPORTANCE --------
+    shap.summary_plot(
+        shap_values,
+        X_test_processed,
+        feature_names=feature_names,
+        show=False
+    )
+
+    plt.title("SHAP Summary Plot")
+    plt.tight_layout()
+    plt.savefig("models/shap_summary.png")
+    plt.close()
+
+    print("SHAP summary plot saved to models/shap_summary.png ✅")
+
+    # -------- SINGLE PREDICTION --------
+    sample_index = 0
+
+    shap.force_plot(
+        explainer.expected_value,
+        shap_values[sample_index],
+        X_test_processed[sample_index],
+        feature_names=feature_names,
+        matplotlib=True,
+        show=False
+    )
+
+    plt.title("SHAP Force Plot (Single Prediction)")
+    plt.tight_layout()
+    plt.savefig("models/shap_single_prediction.png")
+    plt.close()
+
+    print("Single prediction SHAP plot saved to models/shap_single_prediction.png ✅")
+
+else:
+    print("SHAP skipped (Best model is not tree-based).")
