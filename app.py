@@ -4,13 +4,19 @@ import joblib
 import json
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 
 # -----------------------------
-# Load Model & Threshold
+# Load Model & Threshold (DEPLOYMENT SAFE)
 # -----------------------------
-model = joblib.load("models/model_v1.pkl")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-with open("models/threshold.json", "r") as f:
+model_path = os.path.join(BASE_DIR, "models", "model_v1.pkl")
+threshold_path = os.path.join(BASE_DIR, "models", "threshold.json")
+
+model = joblib.load(model_path)
+
+with open(threshold_path, "r") as f:
     threshold = json.load(f)["best_threshold"]
 
 st.set_page_config(page_title="Loan Risk Intelligence System", layout="wide")
