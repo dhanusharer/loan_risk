@@ -1,5 +1,6 @@
 # ==========================================
-# train.py - Loan Default Prediction
+# src/train.py
+# Loan Default Prediction Training Script
 # ==========================================
 
 import os
@@ -7,55 +8,51 @@ import json
 import numpy as np
 import pandas as pd
 import joblib
-import matplotlib.pyplot as plt
 
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
-from sklearn.metrics import (
-    classification_report,
-    precision_score,
-    recall_score,
-    f1_score,
-    roc_auc_score,
-    confusion_matrix
-)
-from xgboost import XGBClassifier
-import shap
+from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score
+
 from src.preprocessing import feature_engineering
 
 
 # ==========================================
-# 1. Load Data
+# 1. Load Dataset
 # ==========================================
 
-print("Loading data...")
+print("📂 Loading dataset...")
 df = pd.read_csv("data/loan_data.csv")
 
 X = df.drop("loan_status", axis=1)
 y = df["loan_status"]
 
+print("✅ Dataset loaded successfully")
+
+# ==========================================
+# 2. Train-Test Split
+# ==========================================
+
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y,
+    X,
+    y,
     test_size=0.2,
     random_state=42,
     stratify=y
 )
 
-print("Data loaded successfully ✅")
-
+print("✅ Data split completed")
 
 # ==========================================
-# 2. Feature Engineering & Preprocessing
+# 3. Preprocessing Pipeline
 # ==========================================
 
 feature_transformer = FunctionTransformer(feature_engineering)
 
 numeric_features = X.select_dtypes(include=["int64", "float64"]).columns
-categorical_features = X.select_dtypes(include=["object", "string"]).columns
+categorical_features = X.select_dtypes(include=["object"]).columns
 
 preprocessor = ColumnTransformer(
     transformers=[
@@ -64,76 +61,51 @@ preprocessor = ColumnTransformer(
     ]
 )
 
-
 # ==========================================
-# 3. Model Comparison
-# ==========================================
-
-models = {
-    "Logistic Regression": LogisticRegression(max_iter=1000),
-    "Random Forest": RandomForestClassifier(
-        n_estimators=200,
-        random_state=42
-    ),
-    "XGBoost": XGBClassifier(
-        n_estimators=200,
-        learning_rate=0.1,
-        max_depth=5,
-        random_state=42,
-        eval_metric="logloss"
-    )
-}
-
-results = {}
-trained_pipelines = {}
-
-print("\n===== MODEL COMPARISON =====\n")
-
-for name, model in models.items():
-
-    pipeline = Pipeline(steps=[
-        ("feature_engineering", feature_transformer),
-        ("preprocessing", preprocessor),
-        ("model", model)
-    ])
-
-    print(f"Training {name}...")
-    pipeline.fit(X_train, y_train)
-
-    y_prob = pipeline.predict_proba(X_test)[:, 1]
-    roc_auc = roc_auc_score(y_test, y_prob)
-
-    results[name] = roc_auc
-    trained_pipelines[name] = pipeline
-
-    print(f"{name} ROC-AUC: {roc_auc:.4f}\n")
-
-
-print("===== FINAL COMPARISON =====")
-for model_name, score in results.items():
-    print(f"{model_name}: {score:.4f}")
-
-
-# ==========================================
-# 4. Select Best Model
+# 4. Model Definition
 # ==========================================
 
-best_model_name = max(results, key=results.get)
-best_pipeline = trained_pipelines[best_model_name]
+model = RandomForestClassifier(
+    n_estimators=300,
+    max_depth=None,
+    random_state=42,
+    n_jobs=-1
+)
 
-print(f"\n🏆 Best Model: {best_model_name}")
-
+pipeline = Pipeline(steps=[
+    ("feature_engineering", feature_transformer),
+    ("preprocessing", preprocessor),
+    ("model", model)
+])
 
 # ==========================================
-# 5. Cross Validation (Only Best Model)
+# 5. Train Model
 # ==========================================
 
-print("\n===== CROSS-VALIDATION =====\n")
+print("🚀 Training model...")
+pipeline.fit(X_train, y_train)
+
+# ==========================================
+# 6. Evaluation
+# ==========================================
+
+y_prob = pipeline.predict_proba(X_test)[:, 1]
+
+roc = roc_auc_score(y_test, y_prob)
+
+print("\n📊 Model Evaluation")
+print("ROC-AUC Score:", round(roc, 4))
+
+# ==========================================
+# 7. Cross Validation
+# ==========================================
+
+print("\n🔁 Performing Cross-Validation...")
 
 cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
 cv_scores = cross_val_score(
-    best_pipeline,
+    pipeline,
     X,
     y,
     cv=cv,
@@ -142,134 +114,42 @@ cv_scores = cross_val_score(
 )
 
 print("Fold ROC-AUC Scores:", cv_scores)
-print("Mean ROC-AUC:", cv_scores.mean())
-print("Standard Deviation:", cv_scores.std())
-
+print("Mean CV ROC-AUC:", round(cv_scores.mean(), 4))
+print("Std Dev:", round(cv_scores.std(), 4))
 
 # ==========================================
-# 6. Save Best Model
+# 8. Threshold Optimization
+# ==========================================
+
+print("\n🎯 Optimizing Threshold...")
+
+thresholds = np.arange(0.1, 0.91, 0.05)
+best_f1 = 0
+best_threshold = 0.5
+
+for t in thresholds:
+    y_pred_t = (y_prob >= t).astype(int)
+    f1 = f1_score(y_test, y_pred_t)
+
+    if f1 > best_f1:
+        best_f1 = f1
+        best_threshold = t
+
+print("Best Threshold:", round(best_threshold, 2))
+print("Best F1 Score:", round(best_f1, 4))
+
+# ==========================================
+# 9. Save Model & Threshold
 # ==========================================
 
 os.makedirs("models", exist_ok=True)
-joblib.dump(best_pipeline, "models/model_v1.pkl")
 
-print("Model saved to models/model_v1.pkl ✅")
+joblib.dump(pipeline, "models/model_v1.pkl")
 
-
-# ==========================================
-# 7. Final Evaluation
-# ==========================================
-
-print("\n===== MODEL EVALUATION =====\n")
-
-y_pred = best_pipeline.predict(X_test)
-y_prob = best_pipeline.predict_proba(X_test)[:, 1]
-
-print("Classification Report:\n")
-print(classification_report(y_test, y_pred))
-
-print("ROC-AUC Score:", roc_auc_score(y_test, y_prob))
-
-print("\nConfusion Matrix:\n")
-print(confusion_matrix(y_test, y_pred))
-
-
-# ==========================================
-# 8. Threshold Analysis
-# ==========================================
-
-print("\n===== THRESHOLD ANALYSIS =====\n")
-
-thresholds = np.arange(0.1, 0.91, 0.05)
-threshold_results = []
-
-for t in thresholds:
-    y_pred_threshold = (y_prob >= t).astype(int)
-
-    precision = precision_score(y_test, y_pred_threshold)
-    recall = recall_score(y_test, y_pred_threshold)
-    f1 = f1_score(y_test, y_pred_threshold)
-
-    threshold_results.append((t, precision, recall, f1))
-
-    print(f"Threshold: {t:.2f} | "
-          f"Precision: {precision:.3f} | "
-          f"Recall: {recall:.3f} | "
-          f"F1: {f1:.3f}")
-
-best_threshold = max(threshold_results, key=lambda x: x[3])
-
-print("\n===== BEST THRESHOLD (Based on F1) =====")
-print(f"Best Threshold: {best_threshold[0]:.2f}")
-print(f"Precision: {best_threshold[1]:.3f}")
-print(f"Recall: {best_threshold[2]:.3f}")
-print(f"F1 Score: {best_threshold[3]:.3f}")
-
-# Save threshold
 with open("models/threshold.json", "w") as f:
-    json.dump({"best_threshold": float(best_threshold[0])}, f)
+    json.dump({"best_threshold": float(best_threshold)}, f)
 
-print("Threshold saved to models/threshold.json ✅")
+print("\n✅ Model saved to models/model_v1.pkl")
+print("✅ Threshold saved to models/threshold.json")
 
-print("\nTraining pipeline finished successfully 🚀")
-# ==========================================
-# 9. SHAP Explainability
-# ==========================================
-
-print("\n===== SHAP EXPLAINABILITY =====\n")
-
-# SHAP works best for tree models
-if "XGB" in best_model_name:
-
-    # Transform test data
-    X_test_fe = best_pipeline.named_steps["feature_engineering"].transform(X_test)
-    X_test_processed = best_pipeline.named_steps["preprocessing"].transform(X_test_fe)
-
-    # Get trained XGBoost model
-    model = best_pipeline.named_steps["model"]
-
-    # Get feature names
-    feature_names = best_pipeline.named_steps["preprocessing"].get_feature_names_out()
-
-    # Create SHAP explainer
-    explainer = shap.TreeExplainer(model)
-
-    # Calculate SHAP values
-    shap_values = explainer.shap_values(X_test_processed)
-
-    # -------- GLOBAL IMPORTANCE --------
-    shap.summary_plot(
-        shap_values,
-        X_test_processed,
-        feature_names=feature_names,
-        show=False
-    )
-
-    plt.title("SHAP Summary Plot")
-    plt.tight_layout()
-    plt.savefig("models/shap_summary.png")
-    plt.close()
-
-    print("SHAP summary plot saved to models/shap_summary.png ✅")
-
-    # -------- SINGLE PREDICTION --------
-    sample_index = 0
-
-    shap.force_plot(
-        explainer.expected_value,
-        shap_values[sample_index],
-        X_test_processed[sample_index],
-        feature_names=feature_names,
-        matplotlib=True,
-        show=False
-    )
-
-    plt.title("SHAP Force Plot (Single Prediction)")
-    plt.tight_layout()
-    plt.savefig("models/shap_single_prediction.png")
-    plt.close()
-
-    print("Single prediction SHAP plot saved to models/shap_single_prediction.png ✅")
-
-else:
-    print("SHAP skipped (Best model is not tree-based).")
+print("\n🎉 Training Completed Successfully!")
