@@ -150,10 +150,10 @@ if st.button("🚀 Evaluate Loan Risk"):
     ax2.set_xlabel("Income")
     ax2.set_ylabel("Loan Amount")
     st.pyplot(fig2)
-
-    # -------------------------------------------------
+     
+    # --------------------------------------------------
     # Debug Section (Optional)
-    # -------------------------------------------------
+    # --------------------------------------------------
 
     with st.expander("🔍 Debug View"):
         st.write(input_data)
